@@ -1,0 +1,48 @@
+﻿// import data to graph db
+LOAD CSV FROM "file:///movielens-10m_rating.edges" AS row
+WITH row LIMIT 20000
+WITH toInteger(row[0]) AS userId, toInteger(row[1]) AS movieId, toFloat(row[2]) AS rating, toInteger(row[3]) AS timeStamp  
+MERGE (u:User {userId: userId})
+MERGE (m:Movie {movieId: movieId})
+MERGE (u)-[rel:RATED {rating: rating, timeStamp: timeStamp}]->(m)
+RETURN userId, movieId, rating, timeStamp
+// set similarity relation
+MATCH (u1:User)-[x:RATED]->(m:Movie)<-[y:RATED]-(u2:User)
+WITH  SUM(x.rating * y.rating) AS xyDotProduct,
+     SQRT(REDUCE(xDot = 0.0, a IN COLLECT(x.rating) | xDot + a^2)) AS xLength,
+     SQRT(REDUCE(yDot = 0.0, b IN COLLECT(y.rating) | yDot + b^2)) AS yLength,
+     u1, u2
+MERGE (u1)-[s:SIMILARITY]-(u2)
+SET   s.similarity = xyDotProduct / (xLength * yLength)
+
+
+// recommendation query 
+MATCH (u1:User{userId:1})-[s:SIMILARITY]-(u2:User)   
+WHERE s.similarity > 0.95  
+with u1,u2,s
+order by s.similarity desc, u2.userId limit 10
+with collect(u2.userId) as sim_users
+//return sim_users
+//return statement to be used whenever we print something
+
+
+with sim_users
+MATCH (u:User)-[r:RATED]->(m:Movie)
+WHERE u.userId in sim_users
+with collect(m.movieId) as movie_list, sim_users
+//return movie_list
+
+
+
+
+
+
+MATCH (u1:User{userId:1})-[s:SIMILARITY]-(u2:User)-[r:RATED]->(m:Movie)
+where u2.userId in sim_users and m.movieId in movie_list
+//with m.movieId, u2.userId, r.rating, s.similarity
+
+
+with m.movieId as movie_name, SUM(r.rating*s.similarity)/SUM(s.similarity) as pred_rating, COUNT(r) as num_users_watched_movie
+order by pred_rating desc
+where num_users_watched_movie>=4
+return movie_name, pred_rating limit 5
